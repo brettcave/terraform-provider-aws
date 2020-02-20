@@ -205,7 +205,7 @@ func resourceAwsMskCluster() *schema.Resource {
 			"number_of_broker_nodes": {
 				Type:     schema.TypeInt,
 				Required: true,
-				ForceNew: true,
+				ForceNew: false,
 			},
 			"tags": tagsSchema(),
 			"zookeeper_connect_string": {

@@ -25,15 +25,20 @@ func resourceAwsSecurityHubStandardsControl() *schema.Resource {
 				ForceNew:     true,
 				ValidateFunc: validateArn,
 			},
+			"standards_arn": {
+				Type:         schema.TypeString,
+				Required:     true,
+				ValidateFunc: validateArn,
+			},
 			"enabled": {
-				Type:		  schema.TypeBool,
-				Optional:	  true,
-				Default: 	  true,
+				Type:     schema.TypeBool,
+				Optional: true,
+				Default:  true,
 			},
 			"disabled_reason": {
-				Type:		schema.TypeString,
-				optional:	true,
-			}
+				Type:     schema.TypeString,
+				Optional: true,
+			},
 		},
 	}
 }
@@ -42,25 +47,26 @@ func resourceAwsSecurityHubStandardsControlCreate(d *schema.ResourceData, meta i
 	conn := meta.(*AWSClient).securityhubconn
 	log.Printf("[DEBUG] Enabling Security Hub standard control %s", d.Get("standards_control_arn"))
 
-	if d.GetOk("enabled") {
+	var isEnabled string
+	if enabled, ok := d.GetOk("enabled"); ok && enabled.(bool) {
 		isEnabled = "ENABLED"
 	} else {
 		isEnabled = "DISABLED"
 	}
 
-	resp, err := conn.UpdateStandardsControl(&securityhub.UpdateStandardsControlsInput{
-		ControlStatus: isEnabled,
-		DisabledReason: d.Get("disabled_reason"),
-		StandardsControlArn: d.Get("standards_control_arn"),
+	resp, err := conn.UpdateStandardsControl(&securityhub.UpdateStandardsControlInput{
+		ControlStatus:       aws.String(isEnabled),
+		DisabledReason:      aws.String(d.Get("disabled_reason").(string)),
+		StandardsControlArn: aws.String(d.Get("standards_control_arn").(string)),
 	})
 
 	if err != nil {
 		return fmt.Errorf("Error setting Security Hub standard control to %s: %s", isEnabled, err)
 	}
 
-	standardsControl := resp.StandardsControls[0]
+	log.Printf("[DEBUG] Response body: %s", resp)
 
-	d.SetId(*standardsControl.StandardsControlArn)
+	d.SetId(d.Get("standards_control_arn").(string))
 
 	return resourceAwsSecurityHubStandardsControlRead(d, meta)
 }
@@ -72,22 +78,21 @@ func resourceAwsSecurityHubStandardsControlRead(d *schema.ResourceData, meta int
 	// https://gist.github.com/eferro/651fbb72851fa7987fc642c8f39638eb
 	// will need to filter here, can't get a control directly. Need to record which standards the control is a part of too.
 	resp, err := conn.DescribeStandardsControls(&securityhub.DescribeStandardsControlsInput{
-		StandardsControlArn: []*string{aws.String(d.Id())},
+		StandardsSubscriptionArn: aws.String(d.Get("standards_arn").(string)),
 	})
 
 	if err != nil {
-		return fmt.Errorf("Error reading Security Hub standard control %s: %s", d.Id(), err)
+		return fmt.Errorf("Error reading control %s for Security Hub standard %s: %s", d.Id(), d.Get("standards_arn").(string), err)
 	}
 
-	if len(resp.StandardsControls) == 0 {
+	if len(resp.Controls) != 1 {
 		log.Printf("[WARN] Security Hub standard control (%s) not found, removing from state", d.Id())
 		d.SetId("")
 		return nil
 	}
 
-	standardsControl := resp.StandardsControls[0]
-
-	d.Set("standards_control_arn", standardsControl.StandardsArn)
+	d.Set("enabled", resp.Controls[0].ControlStatus) // ENABLED/DISABLED -> true/false
+	// if disabled, set disabled_reason.
 
 	return nil
 }
@@ -97,8 +102,8 @@ func resourceAwsSecurityHubStandardsControlDelete(d *schema.ResourceData, meta i
 	log.Printf("[DEBUG] Enabling Security Hub standard control %s", d.Id())
 
 	_, err := conn.UpdateStandardsControl(&securityhub.UpdateStandardsControlInput{
-		ControlStatus: "ENABLED",
-		StandardsControlArn: d.Get("standards_control_arn"),
+		ControlStatus:       aws.String("ENABLED"),
+		StandardsControlArn: aws.String(d.Get("standards_control_arn").(string)),
 	})
 
 	if err != nil {
